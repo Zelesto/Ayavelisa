@@ -34,4 +34,4 @@ The app's current screens share one persisted workspace document in PostgreSQL. 
 - Cases and reports can be exported as Excel, PDF, or CSV. A department packet export is a draft download only; it is not submitted to a department system.
 - A case is not department-ready based on a recorded request alone. Configure and integrate the real VerifyNow provider before treating external verification as complete.
 
-This is a development/demo setup. It does not yet include user authentication or authorization, and the sample database credentials must be replaced before any network-exposed deployment.
+This protected demo requires authentication in production, but all allowlisted users share the same workspace and there is no role-based or per-record authorization. Do not enter real beneficiary records until role-based permissions and per-record access controls are implemented and independently validated.
