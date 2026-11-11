@@ -1,0 +1,1 @@
+{"routes":[{"path":"/","title":"Overview"},{"path":"/cases","title":"Beneficiary cases"},{"path":"/cases/:id","title":"Case file"},{"path":"/sites","title":"Sites & readiness"},{"path":"/reports","title":"Reports"},{"path":"/configuration","title":"Configuration"},{"path":"/404","title":"Not found"}]}

@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id
+  name      String
+  persona   String   @default("fieldworker")
+  createdAt DateTime @default(now())
+}
+
+model CaseRecord {
+  id                 String   @id
+  name               String
+  household          String
+  project            String
+  location           String
+  source             String
+  verification       String
+  verificationTone   String
+  subsidy            String
+  subsidyTone        String
+  readiness          String
+  nextAction         String
+  updated            String
+  members            Int
+  site               String
+  sources            Json?
+  intakeId           String?
+  latestVisitSummary Json?
+  version            Int      @default(1)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  visits     Visit[]
+  blockers   Blocker[]
+  activities Activity[]
+}
+
+model Visit {
+  id           String    @id
+  caseId       String
+  assignedTo   String
+  scheduledFor DateTime
+  status       String    @default("assigned")
+  form         Json?
+  summary      Json?
+  startedAt    DateTime?
+  submittedAt  DateTime?
+  reviewedAt   DateTime?
+  returnedAt   DateTime?
+  returnReason String?
+  reviewedBy   String?
+  synced       Boolean   @default(false)
+  version      Int       @default(1)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  case       CaseRecord @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  evidence   VisitEvidence[]
+  grievances VisitGrievance[]
+
+  @@index([caseId])
+  @@index([status])
+}
+
+model VisitEvidence {
+  id              String   @id
+  visitId         String
+  kind            String
+  category        String?
+  label           String
+  dataUrl         String   // base64; see "Photos" below
+  capturedAt      DateTime
+  sizeBytes       Int
+  provenance      Json?
+  legibilityStatus String?
+  legibilityNote  String?
+  createdAt       DateTime @default(now())
+
+  visit Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+
+  @@index([visitId])
+}
+
+model VisitGrievance {
+  id              String    @id
+  visitId         String
+  raisedAt        DateTime
+  raisedBy        String
+  description     String
+  category        String
+  status          String    @default("open")
+  resolutionOwner String?
+  dueDate         DateTime?
+  resolution      String?
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  visit Visit @relation(fields: [visitId], references: [id], onDelete: Cascade)
+
+  @@index([visitId])
+}
+
+model Blocker {
+  id        String   @id
+  caseId    String
+  label     String
+  detail    String
+  action    String
+  primary   String
+  status    String   @default("open")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  case CaseRecord @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+}
+
+model Activity {
+  id        String   @id
+  kind      String
+  tone      String
+  title     String
+  detail    String
+  time      String
+  at        DateTime
+  caseId    String?
+  createdAt DateTime @default(now())
+
+  case CaseRecord? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+}
+
+model Intake {
+  id     String @id
+  status String @default("draft")
+  data   Json
+  version Int    @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AppState {
+  id        String   @id
+  data      Json
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt
+}

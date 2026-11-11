@@ -1,0 +1,15 @@
+services:
+  app:
+    image: ayavelisahumansettlements
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://ayavelisa:ayavelisa_dev@postgres:5432/ayavelisa?schema=public
+      PORT: 4000
+    ports:
+      - 3000:3000
+      - 4000:4000
+      - 9229:9229
+    command: ["pnpm", "run", "dev"]

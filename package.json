@@ -1,0 +1,40 @@
+{
+  "name": "ayavelisa-human-settlements",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"pnpm run dev:api\" \"pnpm run dev:web\"",
+    "dev:api": "pnpm run db:push && node --env-file-if-exists=.env --import tsx --watch server/index.ts",
+    "dev:web": "vite",
+    "build": "prisma generate && tsc --noEmit && vite build",
+    "start": "node --env-file-if-exists=.env --import tsx server/index.ts",
+    "db:push": "prisma db push",
+    "preview": "vite preview",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.4.1",
+    "@fastify/helmet": "^13.2.0",
+    "@fastify/static": "^10.1.10",
+    "@prisma/client": "^6.19.3",
+    "fastify": "^5.12.8",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^0.469.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsx": "^4.23.15",
+    "xlsx": "^0.18.5",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^10.0.7",
+    "prisma": "^6.19.3",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.5"
+  }
+}
