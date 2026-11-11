@@ -987,3 +987,29 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
   .lead-card-footer { align-items: flex-start; flex-direction: column; }
   .lead-card-flags { justify-content: flex-start; }
 }
+
+.auth-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: var(--paper);
+}
+.auth-card {
+  width: min(100%, 400px);
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--white);
+  box-shadow: 0 18px 48px rgba(24, 51, 49, .08);
+}
+.auth-card .brand-mark { margin-bottom: 22px; }
+.auth-eyebrow { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 1px; }
+.auth-card h1 { margin: 4px 0 8px; color: var(--ink); font-size: 28px; }
+.auth-card > p:not(.auth-eyebrow):not(.auth-footnote):not(.auth-error) { margin: 0 0 20px; color: var(--muted-dark); font-size: 13px; }
+.auth-card form { display: grid; gap: 14px; }
+.auth-card form label { display: grid; gap: 6px; color: var(--ink-soft); font-size: 12px; font-weight: 700; }
+.auth-card form input { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--white); font: inherit; }
+.auth-card form input:focus { outline: 2px solid rgba(42, 105, 92, .18); border-color: var(--sage); }
+.auth-error { margin: 0; color: var(--danger); font-size: 12px; }
+.auth-footnote { margin: 18px 0 0; color: var(--muted); font-size: 10px; line-height: 1.5; }

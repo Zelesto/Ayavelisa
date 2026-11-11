@@ -4,6 +4,7 @@ import type {
 } from "./types";
 import { seedFor } from "./seeders";
 import { emptyIntake } from "./intake";
+import { authorizedFetch } from "./supabase";
 
 const KEY = "ayavelisa:field:v2";
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -116,7 +117,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const controller = new AbortController();
     const initialize = async () => {
       try {
-        const response = await fetch("/api/state", { signal: controller.signal });
+        const response = await authorizedFetch("/api/state", { signal: controller.signal });
         if (!response.ok) throw new Error(`Database connection failed (${response.status})`);
         const result = await response.json() as { state: StoreState | null; version: number };
         databaseVersion.current = result.version;
@@ -161,7 +162,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         while (pendingState.current && isDatabaseAvailable(databaseStatusRef.current)) {
           const snapshot = pendingState.current;
           pendingState.current = null;
-          const response = await fetch("/api/state", {
+          const response = await authorizedFetch("/api/state", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ state: snapshot, version: databaseVersion.current }),
@@ -195,7 +196,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const retryDatabase = useCallback(async () => {
     setDatabaseStatus("loading");
     try {
-      const response = await fetch("/api/state");
+      const response = await authorizedFetch("/api/state");
       if (!response.ok) throw new Error(`Database connection failed (${response.status})`);
       const result = await response.json() as { state: StoreState | null; version: number };
       if (result.version !== databaseVersion.current) {
@@ -382,7 +383,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         activities: [act("sync", "sage", "Sync complete", "All captured visits saved to the shared database"), ...state.activities].slice(0, 40),
       };
       writeInProgress.current = true;
-      const response = await fetch("/api/state", {
+      const response = await authorizedFetch("/api/state", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ state: nextState, version: databaseVersion.current }),

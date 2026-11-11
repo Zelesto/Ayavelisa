@@ -1,14 +1,31 @@
 import Fastify from "fastify";
-import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import fastifyStatic from "@fastify/static";
 import { Prisma, PrismaClient } from "@prisma/client";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import path from "node:path";
 
 const prisma = new PrismaClient();
 const app = Fastify({ logger: true, bodyLimit: 50 * 1024 * 1024 });
 const STATE_ID = "workspace";
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const allowedEmails = new Set(
+  (process.env.SUPABASE_ALLOWED_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean),
+);
+const supabase = supabaseUrl && supabaseAnonKey
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  : null;
+
+if (process.env.NODE_ENV === "production" && (!supabase || allowedEmails.size === 0)) {
+  throw new Error("Production requires SUPABASE_URL, SUPABASE_ANON_KEY, and at least one SUPABASE_ALLOWED_EMAILS entry.");
+}
 
 const SaveStateBody = z.object({
   version: z.number().int().nonnegative(),
@@ -16,7 +33,31 @@ const SaveStateBody = z.object({
 });
 
 await app.register(helmet, { contentSecurityPolicy: false });
-await app.register(cors, { origin: true });
+
+app.addHook("preHandler", async (request, reply) => {
+  if (request.url.split("?")[0] !== "/api/state") return;
+  if (!supabase) {
+    if (process.env.NODE_ENV !== "production") return;
+    return reply.code(503).send({ error: "authentication_unavailable" });
+  }
+
+  const authorization = request.headers.authorization;
+  const accessToken = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (!accessToken) return reply.code(401).send({ error: "unauthorized" });
+
+  const { data, error } = await supabase.auth.getUser(accessToken);
+  if (error) {
+    request.log.warn({ status: error.status }, "Supabase access-token validation failed");
+    return reply.code(error.status === 401 ? 401 : 503)
+      .send({ error: error.status === 401 ? "unauthorized" : "authentication_unavailable" });
+  }
+  if (!data.user) return reply.code(401).send({ error: "unauthorized" });
+
+  const email = data.user.email?.toLowerCase();
+  if (!email || (allowedEmails.size > 0 && !allowedEmails.has(email))) {
+    return reply.code(403).send({ error: "workspace_access_denied" });
+  }
+});
 
 app.get("/api/health", async (request, reply) => {
   try {
@@ -29,12 +70,14 @@ app.get("/api/health", async (request, reply) => {
 });
 
 app.get("/api/state", async (_request, reply) => {
+  reply.header("Cache-Control", "no-store");
   const saved = await prisma.appState.findUnique({ where: { id: STATE_ID } });
   if (!saved) return { state: null, version: 0 };
   return { state: saved.data, version: saved.version };
 });
 
 app.put("/api/state", async (request, reply) => {
+  reply.header("Cache-Control", "no-store");
   const parsed = SaveStateBody.safeParse(request.body);
   if (!parsed.success) {
     return reply.code(400).send({ error: "invalid_state", issues: parsed.error.issues });

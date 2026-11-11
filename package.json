@@ -10,14 +10,15 @@
     "build": "prisma generate && tsc --noEmit && vite build",
     "start": "node --env-file-if-exists=.env --import tsx server/index.ts",
     "db:push": "prisma db push",
+    "db:deploy": "prisma migrate deploy",
     "preview": "vite preview",
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@fastify/cors": "^11.4.1",
     "@fastify/helmet": "^13.2.0",
     "@fastify/static": "^10.1.10",
     "@prisma/client": "^6.19.3",
+    "@supabase/supabase-js": "^2.119.0",
     "fastify": "^5.12.8",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.469.0",

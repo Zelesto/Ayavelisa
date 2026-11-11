@@ -5,7 +5,9 @@ import {
 } from "lucide-react";
 import { navigate, useRoute } from "@/lib/router";
 import { StoreProvider, useStore, USERS } from "@/lib/store";
-import { ToastProvider, cx } from "@/components/ui";
+import { supabase } from "@/lib/supabase";
+import { ToastProvider, cx, useToast } from "@/components/ui";
+import AuthGate from "@/components/AuthGate";
 import Overview from "@/pages/Overview";
 import Cases from "@/pages/Cases";
 import CaseDetail from "@/pages/CaseDetail";
@@ -32,6 +34,7 @@ const HOME: Record<Persona, string> = {
 function Shell() {
   const { path } = useRoute();
   const { sync, isSyncing, isOnline, persona, setPersona, currentUser, databaseStatus, databaseError, retryDatabase } = useStore();
+  const { notify } = useToast();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -196,10 +199,17 @@ function Shell() {
               <Database size={13} />
               {databaseStatus === "connected" ? "Database saved" : databaseStatus === "saving" ? "Saving to database" : "Database issue · Retry"}
             </button>
-            <button type="button" className="topbar-user" aria-label="Account menu">
-              <span className="avatar avatar-small">{currentUser.initials}</span>
-              <ChevronDown size={14} />
-            </button>
+            {supabase && (
+              <button type="button" className="topbar-user" aria-label="Sign out" title="Sign out"
+                onClick={() => {
+                  void supabase?.auth.signOut().then(({ error }) => {
+                    if (error) notify(`Could not sign out: ${error.message}`, "error");
+                  });
+                }}>
+                <span className="avatar avatar-small">{currentUser.initials}</span>
+                <ChevronDown size={14} />
+              </button>
+            )}
           </div>
         </header>
         <main className="main-content">{content}</main>
@@ -210,10 +220,12 @@ function Shell() {
 
 export default function App() {
   return (
-    <StoreProvider>
-      <ToastProvider>
-        <Shell />
-      </ToastProvider>
-    </StoreProvider>
+    <AuthGate>
+      <StoreProvider>
+        <ToastProvider>
+          <Shell />
+        </ToastProvider>
+      </StoreProvider>
+    </AuthGate>
   );
 }
