@@ -31,6 +31,9 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [loading, setLoading] = useState(!!supabase);
+  const [recoveringPassword, setRecoveringPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordUpdated, setPasswordUpdated] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -39,6 +42,9 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!supabase) return;
     let active = true;
+    if (new URLSearchParams(window.location.hash.slice(1)).get("type") === "recovery") {
+      setRecoveringPassword(true);
+    }
 
     const resolveSession = async (nextSession: Session | null) => {
       if (!active) return;
@@ -91,6 +97,12 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (event === "INITIAL_SESSION") return;
       if (event === "SIGNED_OUT") clearLocalWorkspace();
+      if (event === "PASSWORD_RECOVERY") {
+        setRecoveringPassword(true);
+        setSession(nextSession);
+        setLoading(false);
+        return;
+      }
       void resolveSession(nextSession);
     });
     return () => {
@@ -120,6 +132,26 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     if (signOutError) setError(`Could not sign out: ${signOutError.message}`);
   };
 
+  const updatePassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!supabase) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateError) throw updateError;
+      setNewPassword("");
+      setRecoveringPassword(false);
+      setPasswordUpdated(true);
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) throw signOutError;
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Could not update your password.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (!supabase) {
     if (import.meta.env.DEV) {
       return <AuthContext.Provider value={{ user: null, protectedMode: false }}>{children}</AuthContext.Provider>;
@@ -134,8 +166,46 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
+  if (recoveringPassword && session) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <div className="brand-mark"><span>A</span><span>V</span></div>
+          <p className="auth-eyebrow">AYAVELISA · SECURE ACCOUNT</p>
+          <h1>Set a new password</h1>
+          <p>Choose a new password for your account.</p>
+          <form onSubmit={updatePassword}>
+            <label>
+              <span>New password</span>
+              <input autoComplete="new-password" type="password" minLength={8} required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+            </label>
+            {error && <p className="auth-error" role="alert">{error}</p>}
+            <button type="submit" className="button button-primary full-width" disabled={submitting}>
+              {submitting ? "Updating password…" : "Update password"}
+            </button>
+          </form>
+          <p className="auth-footnote">Use at least 8 characters and don’t reuse a password from another site.</p>
+        </section>
+      </main>
+    );
+  }
+
   if (loading) {
     return <main className="auth-page" role="status"><section className="auth-card">Checking your sign-in…</section></main>;
+  }
+
+  if (recoveringPassword) {
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <div className="brand-mark"><span>A</span><span>V</span></div>
+          <p className="auth-eyebrow">AYAVELISA · SECURE ACCOUNT</p>
+          <h1>Recovery link unavailable</h1>
+          <p>This password-reset link may have expired or already been used. Ask an administrator to send a new one.</p>
+          <button type="button" className="button button-primary full-width" onClick={() => setRecoveringPassword(false)}>Back to sign in</button>
+        </section>
+      </main>
+    );
   }
 
   if (!session || !user) {
@@ -146,6 +216,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
             <div className="brand-mark"><span>A</span><span>V</span></div>
             <p className="auth-eyebrow">AYAVELISA · PROTECTED ACCESS</p>
             <h1>{session ? "Account access needed" : "Sign in"}</h1>
+            {passwordUpdated && <p className="user-admin-message user-admin-success" role="status">Password updated. Sign in with your new password.</p>}
             <p>{session ? "Your Supabase sign-in is valid, but this account does not currently have an active Ayavelisa role." : "Use an account invited to the Ayavelisa workspace."}</p>
             {!session && (
               <form onSubmit={signIn}>

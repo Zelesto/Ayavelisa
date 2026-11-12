@@ -182,6 +182,10 @@ async function findSupabaseUserByEmail(email: string) {
   throw new Error("Supabase account search exceeded the pagination limit");
 }
 
+function getSupabaseEmailConfirmed(authUser: { email_confirmed_at?: string | null }) {
+  return Boolean(authUser.email_confirmed_at);
+}
+
 async function createManagedUser(
   actor: AuthenticatedUser,
   authUser: { id: string; email?: string; user_metadata?: Record<string, unknown> },
@@ -227,26 +231,35 @@ app.post("/api/admin/users", async (request, reply) => {
   const existing = await prisma.user.findFirst({ where: { email } });
   if (existing) return reply.code(409).send({ error: "account_already_managed" });
 
+  let existingAuthUser: Awaited<ReturnType<typeof findSupabaseUserByEmail>>;
+  try {
+    existingAuthUser = await findSupabaseUserByEmail(email);
+  } catch (lookupError) {
+    request.log.error({ err: lookupError }, "Could not check for an existing Supabase account");
+    return reply.code(502).send({ error: "existing_auth_account_lookup_failed" });
+  }
+
+  if (existingAuthUser?.id) {
+    try {
+      const user = await createManagedUser(actor, existingAuthUser, email, parsed.data.name, parsed.data.role, "link_existing");
+      return reply.code(201).send({ user, linkedExisting: true });
+    } catch (linkError) {
+      request.log.error({ err: linkError, authUserId: existingAuthUser.id }, "Could not link existing Supabase account");
+      return reply.code(502).send({ error: "existing_auth_account_link_failed" });
+    }
+  }
+
   const { data, error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
     data: { full_name: parsed.data.name ?? email },
   });
   if (error || !data.user?.id) {
-    if (error?.status === 422) {
-      try {
-        const existingAuthUser = await findSupabaseUserByEmail(email);
-        if (existingAuthUser?.id) {
-          const user = await createManagedUser(actor, existingAuthUser, email, parsed.data.name, parsed.data.role, "link_existing");
-          return reply.code(201).send({ user, linkedExisting: true });
-        }
-        request.log.warn({ code: error.code }, "Supabase reported an existing user but it could not be found");
-        return reply.code(409).send({ error: "auth_user_already_exists_unresolved" });
-      } catch (linkError) {
-        request.log.error({ err: linkError }, "Could not link existing Supabase account");
-        return reply.code(502).send({ error: "existing_auth_account_link_failed" });
-      }
-    }
     request.log.warn({ status: error?.status, code: error?.code }, "Supabase invite failed");
-    return reply.code(502).send({ error: "invite_failed" });
+    const errorCode = error?.code === "over_email_send_rate_limit"
+      ? "email_rate_limited"
+      : error?.code === "email_address_invalid"
+        ? "email_delivery_not_configured"
+        : "invite_failed";
+    return reply.code(502).send({ error: errorCode });
   }
 
   try {
@@ -256,6 +269,52 @@ app.post("/api/admin/users", async (request, reply) => {
     request.log.error({ err: error, invitedUserId: data.user.id }, "Invite sent but account setup failed");
     return reply.code(502).send({ error: "invite_sent_account_setup_failed" });
   }
+});
+
+app.post<{ Params: { id: string } }>("/api/admin/users/:id/resend-access", async (request, reply) => {
+  reply.header("Cache-Control", "no-store");
+  const actor = request.authUser;
+  if (actor?.role !== "admin") return reply.code(403).send({ error: "admin_required" });
+  if (!supabaseAdmin || !supabase) return reply.code(503).send({ error: "user_email_unavailable" });
+
+  const account = await prisma.user.findUnique({ where: { id: request.params.id } });
+  if (!account?.email) return reply.code(404).send({ error: "account_not_found" });
+  if (!account.active) return reply.code(409).send({ error: "account_inactive" });
+
+  const { data, error: lookupError } = await supabaseAdmin.auth.admin.getUserById(account.id);
+  if (lookupError || !data.user?.email) {
+    request.log.error({ status: lookupError?.status, code: lookupError?.code }, "Could not find account in Supabase Auth");
+    return reply.code(502).send({ error: "auth_account_not_found" });
+  }
+
+  const email = data.user.email.trim().toLowerCase();
+  const sendResult = getSupabaseEmailConfirmed(data.user)
+    ? await supabase.auth.resetPasswordForEmail(email)
+    : await supabase.auth.resend({ type: "signup", email });
+
+  if (sendResult.error) {
+    request.log.warn({ status: sendResult.error.status, code: sendResult.error.code }, "Could not send account access email");
+    const errorCode = sendResult.error.code === "over_email_send_rate_limit"
+      ? "email_rate_limited"
+      : "access_email_failed";
+    return reply.code(502).send({ error: errorCode });
+  }
+
+  try {
+    await prisma.userAudit.create({
+      data: {
+        id: crypto.randomUUID(),
+        actorUserId: actor.id,
+        subjectUserId: account.id,
+        action: getSupabaseEmailConfirmed(data.user) ? "password_recovery_sent" : "confirmation_resent",
+        after: { email, confirmed: getSupabaseEmailConfirmed(data.user) },
+      },
+    });
+  } catch (auditError) {
+    request.log.error({ err: auditError, subjectUserId: account.id }, "Access email sent but the action could not be audited");
+    return reply.code(502).send({ error: "email_sent_audit_failed" });
+  }
+  return { sent: true, type: getSupabaseEmailConfirmed(data.user) ? "password_recovery" : "confirmation" };
 });
 
 app.patch<{ Params: { id: string } }>("/api/admin/users/:id", async (request, reply) => {

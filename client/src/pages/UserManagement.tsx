@@ -19,6 +19,14 @@ function readableError(code: string | undefined, fallback: string) {
   if (code === "account_already_managed") return "This email is already in the Ayavelisa user list. Change its role there.";
   if (code === "auth_user_already_exists_unresolved") return "Supabase says this email already has an account, but Ayavelisa could not locate it. Verify the email in Supabase Auth and confirm the Render service-role key belongs to the same project.";
   if (code === "existing_auth_account_link_failed") return "The Supabase account exists, but Ayavelisa could not link it. Check the Render database and server logs.";
+  if (code === "existing_auth_account_lookup_failed") return "Ayavelisa could not check for an existing Supabase account. Verify the server-only service-role key in Render.";
+  if (code === "user_email_unavailable") return "Email delivery is not configured. Add the Supabase service-role key to Render.";
+  if (code === "email_rate_limited") return "Supabase is temporarily limiting emails. Wait a few minutes or configure custom SMTP in Supabase Auth.";
+  if (code === "email_delivery_not_configured") return "Supabase email delivery is unavailable. Configure a custom SMTP provider in Supabase Auth.";
+  if (code === "access_email_failed") return "Supabase could not send the access email. Check the Supabase Auth email/SMTP settings and allowed redirect URLs.";
+  if (code === "auth_account_not_found") return "The account is listed in Ayavelisa but was not found in Supabase Auth. Check that the Render service-role key points to the same project.";
+  if (code === "account_inactive") return "Reactivate this account before sending an access email.";
+  if (code === "email_sent_audit_failed") return "The email was sent, but Ayavelisa could not record the action. Check the recipient’s inbox before trying again, then inspect the server logs.";
   if (code === "cannot_remove_last_active_admin") return "At least one active administrator must remain.";
   if (code === "cannot_remove_own_admin_access") return "You cannot deactivate or demote your own administrator account.";
   if (code === "invite_sent_account_setup_failed") return "The invitation email was sent, but the account record could not be created. Contact support before inviting this email again.";
@@ -103,13 +111,33 @@ export default function UserManagement() {
     }
   };
 
+  const resendAccess = async (account: ManagedUser) => {
+    setBusyId(account.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await authorizedFetch(`/api/admin/users/${encodeURIComponent(account.id)}/resend-access`, {
+        method: "POST",
+      });
+      const result = await response.json() as { sent?: boolean; type?: "confirmation" | "password_recovery"; error?: string };
+      if (!response.ok || !result.sent) throw new Error(readableError(result.error, "Could not send an account access email."));
+      setNotice(result.type === "confirmation"
+        ? `Confirmation email sent to ${account.email}.`
+        : `Password reset email sent to ${account.email}.`);
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Could not send an account access email.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <>
       <div className="page-heading">
         <div>
           <SectionEyebrow>Administration / Access</SectionEyebrow>
           <h1>Users &amp; roles</h1>
-          <p>Invite team members, assign their application role, and deactivate access when it is no longer needed.</p>
+          <p>Invite team members, resend confirmation or password-reset emails, assign roles, and deactivate access.</p>
         </div>
         <button type="button" className="button button-quiet" onClick={() => void loadUsers()} disabled={loading}>
           <RefreshCw size={15} /> Refresh
@@ -132,7 +160,7 @@ export default function UserManagement() {
             <MailPlus size={15} />{inviting ? "Sending invite…" : "Send invite"}
           </button>
         </form>
-        <p className="user-admin-note">Supabase sends the invitation email. Public sign-ups stay disabled; invited users create their password through the secure email link.</p>
+        <p className="user-admin-note">New invitations are sent by Supabase. Existing Supabase accounts are linked to Ayavelisa; use the account’s resend action to send a confirmation or password-reset email. Public sign-ups stay disabled.</p>
       </section>
 
       <section className="user-role-guidance" aria-label="Role permissions">
@@ -180,6 +208,14 @@ export default function UserManagement() {
                   {draftRoles[account.id] !== account.role && (
                     <button type="button" className="button button-primary button-small" disabled={busyId === account.id} onClick={() => void updateUser(account, { role: draftRoles[account.id] })}>Save role</button>
                   )}
+                  <button
+                    type="button"
+                    className="button button-quiet button-small"
+                    disabled={busyId === account.id || !account.active}
+                    onClick={() => void resendAccess(account)}
+                  >
+                    <MailPlus size={14} />{busyId === account.id ? "Sending…" : "Resend access"}
+                  </button>
                   <button
                     type="button"
                     className={account.active ? "button button-quiet button-small" : "button button-primary button-small"}
