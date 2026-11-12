@@ -11,6 +11,16 @@
 
 Vite proxies `/api` requests to the API on port 4000. For Supabase, use the transaction-pooler URI (port 6543) for `DATABASE_URL` at runtime and the session-pooler URI (port 5432) for `DIRECT_URL`, which Prisma uses for migrations. Both values are private.
 
+## Sync changes with GitHub
+
+Run `deploy-to-git.bat` from the repository root (or double-click it) to choose one of these actions on the current branch:
+
+- **Push existing commits** sends already-committed changes to GitHub, and requires a clean working tree.
+- **Pull latest changes** rebases the current branch on its GitHub counterpart, and requires a clean working tree.
+- **Sync local changes** stages and commits local changes, pulls/rebases remote changes, then pushes the result.
+
+The script does not discard local changes. If a rebase conflict occurs, resolve it and run `git rebase --continue` before pushing. It blocks syncing if an `.env` file is staged. Render auto-deploys from `main`; pushing another branch does not deploy the app.
+
 ## Run the full app with Docker
 
 Run `docker compose up --build`, then open `http://localhost:3000`. The app waits for PostgreSQL, applies the schema, and serves the web UI and API together. PostgreSQL data is kept in the `pgdata` Docker volume.
