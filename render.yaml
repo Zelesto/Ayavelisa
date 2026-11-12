@@ -3,13 +3,17 @@ services:
     name: ayavelisa-demo
     runtime: node
     plan: free
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm run build
-    startCommand: pnpm run db:deploy && pnpm start
+    region: frankfurt
+    branch: main
+   buildCommand: pnpm install --frozen-lockfile && pnpm run build
+    startCommand: npm run db:deploy && npm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
         sync: false
       - key: SUPABASE_URL
         sync: false
