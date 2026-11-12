@@ -32,6 +32,9 @@ function readableError(code: string | undefined, fallback: string) {
   if (code === "cannot_delete_own_account") return "You cannot delete your own administrator account.";
   if (code === "account_activation_unavailable") return "Could not activate this account. Check that the server-side Supabase service-role key is configured in Render.";
   if (code === "account_confirmation_failed") return "Supabase could not confirm this account. Check the server logs and confirm that the service-role key belongs to the correct project.";
+  if (code === "account_email_mismatch") return "The account email in Supabase does not match the Ayavelisa user record. Contact an administrator before enabling login.";
+  if (code === "account_update_failed") return "Supabase may have confirmed the email, but Ayavelisa could not finish updating the account. Refresh the user list and check the Render server logs.";
+  if (code === "account_lookup_failed") return "Ayavelisa could not load this account from the database. Check the Render database connection and server logs.";
   if (code === "account_deletion_unavailable") return "Account deletion requires the server-side Supabase service-role key in Render.";
   if (code === "supabase_account_deletion_failed") return "Supabase could not delete this account. No Ayavelisa account changes were saved; check the server logs and try again.";
   if (code === "invite_sent_account_setup_failed") return "The invitation email was sent, but the account record could not be created. Contact support before inviting this email again.";

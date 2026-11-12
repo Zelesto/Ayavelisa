@@ -328,19 +328,46 @@ app.patch<{ Params: { id: string } }>("/api/admin/users/:id", async (request, re
     return reply.code(400).send({ error: "cannot_remove_own_admin_access" });
   }
 
+  let accountToActivate: { id: string; email: string | null } | null = null;
   if (parsed.data.active === true) {
-    if (!supabaseAdmin) return reply.code(503).send({ error: "account_activation_unavailable" });
-    const { data: authUser, error: lookupError } = await supabaseAdmin.auth.admin.getUserById(request.params.id);
-    if (lookupError || !authUser.user?.email) {
-      request.log.error({ status: lookupError?.status, code: lookupError?.code }, "Could not find account in Supabase Auth for activation");
-      return reply.code(502).send({ error: "auth_account_not_found" });
+    try {
+      accountToActivate = await prisma.user.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, email: true },
+      });
+    } catch (lookupError) {
+      request.log.error({ err: lookupError, userId: request.params.id }, "Could not load managed account for activation");
+      return reply.code(503).send({ error: "account_lookup_failed" });
     }
-    if (!getSupabaseEmailConfirmed(authUser.user)) {
-      const { error: confirmError } = await supabaseAdmin.auth.admin.updateUserById(request.params.id, { email_confirm: true });
-      if (confirmError) {
-        request.log.error({ status: confirmError.status, code: confirmError.code }, "Could not confirm account email for administrator-approved access");
-        return reply.code(502).send({ error: "account_confirmation_failed" });
+  }
+  if (parsed.data.active === true && !accountToActivate) {
+    return reply.code(404).send({ error: "account_not_found" });
+  }
+
+  if (accountToActivate) {
+    const activationEmail = accountToActivate.email;
+    if (!activationEmail) return reply.code(404).send({ error: "account_not_found" });
+    if (!supabaseAdmin) return reply.code(503).send({ error: "account_activation_unavailable" });
+    try {
+      const { data: authUser, error: lookupError } = await supabaseAdmin.auth.admin.getUserById(request.params.id);
+      if (lookupError || !authUser.user?.email) {
+        request.log.error({ status: lookupError?.status, code: lookupError?.code }, "Could not find account in Supabase Auth for activation");
+        return reply.code(502).send({ error: "auth_account_not_found" });
       }
+      if (authUser.user.email.trim().toLowerCase() !== activationEmail.toLowerCase()) {
+        request.log.error({ userId: request.params.id }, "Supabase and Ayavelisa account emails do not match");
+        return reply.code(409).send({ error: "account_email_mismatch" });
+      }
+      if (!getSupabaseEmailConfirmed(authUser.user)) {
+        const { error: confirmError } = await supabaseAdmin.auth.admin.updateUserById(request.params.id, { email_confirm: true });
+        if (confirmError) {
+          request.log.error({ status: confirmError.status, code: confirmError.code }, "Could not confirm account email for administrator-approved access");
+          return reply.code(502).send({ error: "account_confirmation_failed" });
+        }
+      }
+    } catch (activationError) {
+      request.log.error({ err: activationError, userId: request.params.id }, "Supabase activation request failed");
+      return reply.code(502).send({ error: "account_confirmation_failed" });
     }
   }
 
@@ -387,7 +414,7 @@ app.patch<{ Params: { id: string } }>("/api/admin/users/:id", async (request, re
       return reply.code(409).send({ error: "cannot_remove_last_active_admin" });
     }
     request.log.error({ err: error }, "Could not update account");
-    throw error;
+    return reply.code(503).send({ error: "account_update_failed" });
   }
 });
 
