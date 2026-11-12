@@ -373,7 +373,7 @@ app.patch<{ Params: { id: string } }>("/api/admin/users/:id", async (request, re
 
   try {
     const updatedUser = await prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(78112026)`;
+      await transaction.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(78112026)) AS account_lock`;
       const current = await transaction.user.findUnique({ where: { id: request.params.id } });
       if (!current?.email) return null;
 
@@ -426,7 +426,7 @@ app.delete<{ Params: { id: string } }>("/api/admin/users/:id", async (request, r
 
   try {
     const deletedUser = await prisma.$transaction(async (transaction) => {
-      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(78112026)`;
+      await transaction.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(78112026)) AS account_lock`;
       const current = await transaction.user.findUnique({ where: { id: request.params.id } });
       if (!current?.email) return null;
 
