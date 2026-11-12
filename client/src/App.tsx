@@ -7,7 +7,8 @@ import { navigate, useRoute } from "@/lib/router";
 import { StoreProvider, useStore, USERS } from "@/lib/store";
 import { supabase } from "@/lib/supabase";
 import { ToastProvider, cx, useToast } from "@/components/ui";
-import AuthGate from "@/components/AuthGate";
+import AuthGate, { useAuth } from "@/components/AuthGate";
+import { ROLE_LABELS, rolePersona, userInitials, type AccountRole } from "@/lib/auth";
 import Overview from "@/pages/Overview";
 import Cases from "@/pages/Cases";
 import CaseDetail from "@/pages/CaseDetail";
@@ -21,6 +22,7 @@ import VisitCapture from "@/pages/VisitCapture";
 import ReviewQueue from "@/pages/ReviewQueue";
 import IntakeReview from "@/pages/IntakeReview";
 import FieldIntake from "@/pages/FieldIntake";
+import UserManagement from "@/pages/UserManagement";
 import type { Persona } from "@/lib/types";
 
 type NavItem = { label: string; icon: typeof LayoutDashboard; path: string; count?: string; forPersona?: Persona[] };
@@ -31,14 +33,32 @@ const HOME: Record<Persona, string> = {
   reviewer: "/review",
 };
 
+function canAccessPath(role: AccountRole | null, path: string) {
+  if (!role) return true;
+  const pathname = path.split("?")[0];
+  if (role === "admin" || role === "supervisor") return pathname !== "/users" || role === "admin";
+  if (role === "reviewer") {
+    return pathname === "/" || ["/review", "/review/intake", "/cases", "/leads", "/sites", "/reports"].some((allowed) =>
+      pathname === allowed || pathname.startsWith(`${allowed}/`),
+    );
+  }
+  return pathname === "/" || pathname === "/field" || pathname === "/field/visits" || pathname.startsWith("/field/visits/")
+    || pathname === "/leads" || pathname === "/intake" || pathname.startsWith("/intake/");
+}
+
 function Shell() {
   const { path } = useRoute();
-  const { sync, isSyncing, isOnline, persona, setPersona, currentUser, databaseStatus, databaseError, retryDatabase } = useStore();
+  const { user, protectedMode } = useAuth();
+  const { sync, isSyncing, isOnline, persona: localPersona, setPersona, currentUser, databaseStatus, databaseError, retryDatabase } = useStore();
+  const persona = user ? rolePersona(user.role) : localPersona;
+  const displayUser = user
+    ? { name: user.name, role: ROLE_LABELS[user.role], initials: userInitials(user.name, user.email) }
+    : currentUser;
   const { notify } = useToast();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
-    if (path === "/" && persona === "fieldworker") navigate("/field");
+    if (path === "/" && (persona === "fieldworker" || persona === "reviewer")) navigate(HOME[persona]);
   }, [path, persona]);
 
   if (databaseStatus === "loading") {
@@ -56,7 +76,6 @@ function Shell() {
         { label: "Today", icon: LayoutDashboard, path: "/field" },
         { label: "My visits", icon: ClipboardList, path: "/field/visits" },
         { label: "Assigned leads", icon: FileText, path: "/leads" },
-        { label: "My cases", icon: Users, path: "/cases" },
       ]
     : persona === "reviewer"
       ? [
@@ -76,6 +95,7 @@ function Shell() {
           { label: "Sites & readiness", icon: Map, path: "/sites" },
           { label: "Reports", icon: FileText, path: "/reports" },
           { label: "Configuration", icon: SlidersHorizontal, path: "/configuration" },
+          ...(user?.role === "admin" ? [{ label: "Users & roles", icon: Users, path: "/users" }] : []),
         ];
 
   const activePath = path;
@@ -84,6 +104,15 @@ function Shell() {
   const intakeMatch = path.match(/^\/intake\/([^/]+)$/);
 
   const content = (() => {
+    if (!canAccessPath(user?.role ?? null, path)) {
+      return (
+        <div className="missing-state">
+          <h2>Access restricted</h2>
+          <p>Your {user ? ROLE_LABELS[user.role].toLowerCase() : "current"} account does not have permission to open this screen.</p>
+          <button className="button button-primary" type="button" onClick={() => navigate(HOME[persona])}>Go to my home</button>
+        </div>
+      );
+    }
     if (path === "/field") return <FieldHome />;
     if (path === "/field/visits") return <MyVisits />;
     if (visitMatch) return <VisitCapture visitId={decodeURIComponent(visitMatch[1])} />;
@@ -98,6 +127,7 @@ function Shell() {
     if (path === "/sites") return <Sites />;
     if (path === "/reports") return <Reports />;
     if (path === "/configuration") return <Configuration />;
+    if (path === "/users") return <UserManagement />;
     return (
       <div className="missing-state">
         <h2>Page not found</h2>
@@ -153,8 +183,8 @@ function Shell() {
         <button type="button" className="nav-item"><Bell size={17} strokeWidth={1.8} /><span>Notifications</span><em className="nav-alert">3</em></button>
         <div className="sidebar-bottom">
           <div className="role-card">
-            <div className="avatar">{currentUser.initials}</div>
-            <div><strong>{currentUser.name}</strong><span>{currentUser.role}</span></div>
+            <div className="avatar">{displayUser.initials}</div>
+            <div><strong>{displayUser.name}</strong><span>{displayUser.role}</span></div>
             <MoreHorizontal size={16} />
           </div>
           <div className="sidebar-footer">
@@ -172,7 +202,7 @@ function Shell() {
             <strong>{breadcrumbLabel}</strong>
           </div>
           <div className="topbar-actions">
-            <div className="persona-switcher">
+            {!protectedMode && <div className="persona-switcher">
               {(Object.keys(USERS) as Persona[]).map((p) => (
                 <button
                   key={p} type="button" onClick={() => switchTo(p)}
@@ -182,7 +212,7 @@ function Shell() {
                   {USERS[p].initials}
                 </button>
               ))}
-            </div>
+            </div>}
             <span className="topbar-date"><CalendarDays size={14} />{new Date().toLocaleDateString("en-ZA", { day: "2-digit", month: "short", year: "numeric" })}</span>
             <span className={cx("sync-state", isSyncing && "is-syncing", !isOnline && "is-offline")}>
               <span className="sync-dot" />
@@ -206,7 +236,7 @@ function Shell() {
                     if (error) notify(`Could not sign out: ${error.message}`, "error");
                   });
                 }}>
-                <span className="avatar avatar-small">{currentUser.initials}</span>
+                <span className="avatar avatar-small">{displayUser.initials}</span>
                 <ChevronDown size={14} />
               </button>
             )}

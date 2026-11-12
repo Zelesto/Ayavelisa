@@ -10,9 +10,12 @@ import {
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { SectionEyebrow, StatusPill, useToast } from "@/components/ui";
+import { useAuth } from "@/components/AuthGate";
+import { navigate } from "@/lib/router";
 
 export default function Configuration() {
   const { resetDemo } = useStore();
+  const { user } = useAuth();
   const { notify } = useToast();
 
   return (
@@ -96,24 +99,29 @@ export default function Configuration() {
             <LockKeyhole size={18} />
           </div>
           <SectionEyebrow>Access model</SectionEyebrow>
-          <h2>Role &amp; scope controls</h2>
-          <p>Project, geography, role and document category are applied to search, exports and downloads.</p>
+          <h2>Role-based access</h2>
+          <p>Roles control available screens and workspace changes. All authorized demo accounts share the same records.</p>
           <div className="access-rows">
             <span>
               <UserRound size={14} />
-              Fieldworker <strong>Assigned visits</strong>
+              Fieldworker <strong>Field capture</strong>
             </span>
             <span>
               <HardHat size={14} />
-              Contractor <strong>Assigned units</strong>
+              Supervisor <strong>Full workspace</strong>
             </span>
             <span>
               <ShieldCheck size={14} />
-              Auditor <strong>Read only</strong>
+              Reviewer <strong>Review &amp; cases</strong>
             </span>
+            <span><LockKeyhole size={14} />Administrator <strong>Manage users &amp; roles</strong></span>
           </div>
-          <button type="button" className="text-button" onClick={() => notify("Role matrix v1 · 8 roles")}>
-            Open role matrix <ArrowRight size={13} />
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => user?.role === "admin" ? navigate("/users") : notify("Only administrators can manage user accounts")}
+          >
+            {user?.role === "admin" ? "Manage users & roles" : "View role permissions"} <ArrowRight size={13} />
           </button>
         </section>
       </div>

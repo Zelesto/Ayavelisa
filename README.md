@@ -2,14 +2,14 @@
 
 ## Run locally
 
-1. Copy `.env.example` to `.env` and set `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_ALLOWED_EMAILS`, and the matching `VITE_SUPABASE_*` values.
+1. Copy `.env.example` to `.env` and set `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_BOOTSTRAP_ADMIN_EMAILS`, and the matching `VITE_SUPABASE_*` values.
 2. For local-only development without Supabase, leave the Supabase variables unset; the development UI uses demo data and the API remains unauthenticated on localhost.
-3. If using a Supabase project, create the approved demo account in Supabase Auth and add its email to `SUPABASE_ALLOWED_EMAILS`.
+3. If using a Supabase project, create the initial administrator in Supabase Auth and add its email to `SUPABASE_BOOTSTRAP_ADMIN_EMAILS`.
 4. Install packages: `pnpm install`
 5. Start the API and web app: `pnpm dev`
 6. Open `http://localhost:3000`.
 
-Vite proxies `/api` requests to the API on port 4000. For a Supabase database, use the project's session-pooler connection string as `DATABASE_URL`.
+Vite proxies `/api` requests to the API on port 4000. For Supabase, use the transaction-pooler URI (port 6543) for `DATABASE_URL` at runtime and the session-pooler URI (port 5432) for `DIRECT_URL`, which Prisma uses for migrations. Both values are private.
 
 ## Run the full app with Docker
 
@@ -20,11 +20,13 @@ The app's current screens share one persisted workspace document in PostgreSQL. 
 ## Protected demo deployment
 
 - The repository includes a Render Blueprint for a free demo web service. Connect the GitHub repository in Render and provide the environment variables from `.env.example` in the Render dashboard; never commit live values. Free instances can sleep when idle and take time to wake.
-- The Render start command runs `prisma migrate deploy` against Supabase; do not apply the same migration manually in the Supabase SQL Editor.
-- Enable email/password sign-in in Supabase Auth, create or invite demo users, and keep `SUPABASE_ALLOWED_EMAILS` restricted to those approved email addresses. Public sign-up should remain disabled.
-- `SUPABASE_URL` and `SUPABASE_ANON_KEY` are used to verify user sessions; the public key is not a database password. Set `DATABASE_URL` to the Supabase session-pooler URI as a private Render environment variable.
-- The production API rejects requests to `/api/state` without a valid Supabase session and an allowlisted email. The health endpoint is public and does not return workspace data.
-- This is a shared demo workspace, not role-based data access. The demo UI can switch personas; that is not authorization. Do not enter real beneficiary records until role-based permissions and per-record access controls are implemented and independently validated.
+- The Render start command runs `prisma migrate deploy` against Supabase using `DIRECT_URL`; do not apply the same migration manually in the Supabase SQL Editor.
+- Enable email/password sign-in in Supabase Auth and keep public sign-ups disabled. Create the first admin user in Supabase Auth; set its exact email in `SUPABASE_BOOTSTRAP_ADMIN_EMAILS`. On its first sign-in, that account is provisioned as an Ayavelisa administrator.
+- Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` for session validation, and `SUPABASE_SERVICE_ROLE_KEY` for server-side invitations. The service-role secret must be a private Render environment variable and must never be exposed to the browser or committed.
+- Configure `SUPABASE_BOOTSTRAP_ADMIN_EMAILS`, `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_URL`, and `SUPABASE_ANON_KEY` in Render. `SUPABASE_SERVICE_ROLE_KEY` is only required to send invitations from the admin screen; without it, sign-in and role management still work. The browser build additionally needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+- Administrators can invite users by email, assign roles, and deactivate/reactivate accounts. User role/status changes are checked by the API and recorded in the user audit table. At least one active administrator must remain.
+- Roles are Administrator, Supervisor, Reviewer and Fieldworker. Fieldworkers may update field/intake sections, reviewers may update review/case sections, and supervisors/admins may update all workspace sections. The UI persona switch is available only in local development.
+- All authorized accounts share the same workspace data. This demo does not isolate individual cases by user or restrict records by geography/project. Do not enter real beneficiary records until per-record authorization, data minimization, and operational security are implemented and independently validated.
 
 ## Case and visit workflows
 
@@ -34,4 +36,4 @@ The app's current screens share one persisted workspace document in PostgreSQL. 
 - Cases and reports can be exported as Excel, PDF, or CSV. A department packet export is a draft download only; it is not submitted to a department system.
 - A case is not department-ready based on a recorded request alone. Configure and integrate the real VerifyNow provider before treating external verification as complete.
 
-This protected demo requires authentication in production, but all allowlisted users share the same workspace and there is no role-based or per-record authorization. Do not enter real beneficiary records until role-based permissions and per-record access controls are implemented and independently validated.
+Production requires authentication and server-checked role permissions, but all authorized users share the demo workspace. Do not enter real beneficiary records until per-record authorization and data scoping are implemented and independently validated.

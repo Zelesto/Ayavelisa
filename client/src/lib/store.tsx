@@ -5,6 +5,8 @@ import type {
 import { seedFor } from "./seeders";
 import { emptyIntake } from "./intake";
 import { authorizedFetch } from "./supabase";
+import { useAuth } from "@/components/AuthGate";
+import { ROLE_LABELS, rolePersona, userInitials } from "./auth";
 
 const KEY = "ayavelisa:field:v2";
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -95,6 +97,11 @@ function nextIntakeId(all: Intake[]): string {
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<StoreState>(load);
+  const { user } = useAuth();
+  const persona = user ? rolePersona(user.role) : state.persona;
+  const currentUser = user
+    ? { name: user.name, role: ROLE_LABELS[user.role], initials: userInitials(user.name, user.email) }
+    : USERS[state.persona];
   const [isSyncing, setIsSyncing] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   const [databaseStatus, setDatabaseStatusState] = useState<"loading" | "connected" | "saving" | "error">("loading");
@@ -212,7 +219,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     id: uid(), kind, tone, title, detail, time: "Just now", at: new Date().toISOString(),
   });
 
-  const setPersona = useCallback((persona: Persona) => setState((s) => ({ ...s, persona })), []);
+  const setPersona = useCallback((nextPersona: Persona) => {
+    if (!user) setState((s) => ({ ...s, persona: nextPersona }));
+  }, [user]);
   const setSeed = useCallback((seedKind: SeedKind) => setState(() => seedFor(seedKind)), []);
   const resetDemo = useCallback(() => setState((s) => seedFor(s.seedKind)), []);
   const createCase = useCallback((draft: Pick<CaseRecord, "name" | "household" | "project" | "location" | "source" | "members" | "site">) => {
@@ -238,12 +247,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       cases: [created, ...s.cases],
       activities: [act("action", "blue", "Case created", created.id), ...s.activities].slice(0, 40),
       auditLog: [{
-        id: uid(), at: new Date().toISOString(), actor: USERS[s.persona].name, persona: s.persona,
+        id: uid(), at: new Date().toISOString(), actor: currentUser.name, persona,
         action: "create", entity: "case", entityId: created.id, before: null, after: created, reason: null,
       }, ...s.auditLog],
     }));
     return created;
-  }, [state.cases, state.persona]);
+  }, [state.cases, currentUser.name, persona]);
   const updateCaseRecord = useCallback((id: string, patch: Partial<CaseRecord>) => setState((s) => {
     const before = s.cases.find((item) => item.id === id);
     if (!before) throw new Error(`Case ${id} was not found`);
@@ -253,11 +262,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       cases: s.cases.map((item) => item.id === id ? after : item),
       activities: [act("action", "sand", "Case updated", id), ...s.activities].slice(0, 40),
       auditLog: [{
-        id: uid(), at: new Date().toISOString(), actor: USERS[s.persona].name, persona: s.persona,
+        id: uid(), at: new Date().toISOString(), actor: currentUser.name, persona,
         action: "update", entity: "case", entityId: id, before, after, reason: null,
       }, ...s.auditLog],
     };
-  }), []);
+  }), [currentUser.name, persona]);
   const archiveCase = useCallback((id: string) => setState((s) => {
     const before = s.cases.find((item) => item.id === id);
     if (!before) throw new Error(`Case ${id} was not found`);
@@ -267,11 +276,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       cases: s.cases.map((item) => item.id === id ? after : item),
       activities: [act("action", "coral", "Case archived", id), ...s.activities].slice(0, 40),
       auditLog: [{
-        id: uid(), at: new Date().toISOString(), actor: USERS[s.persona].name, persona: s.persona,
+        id: uid(), at: new Date().toISOString(), actor: currentUser.name, persona,
         action: "archive", entity: "case", entityId: id, before, after, reason: null,
       }, ...s.auditLog],
     };
-  }), []);
+  }), [currentUser.name, persona]);
   const restoreCase = useCallback((id: string) => setState((s) => {
     const before = s.cases.find((item) => item.id === id);
     if (!before) throw new Error(`Case ${id} was not found`);
@@ -281,11 +290,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       cases: s.cases.map((item) => item.id === id ? after : item),
       activities: [act("action", "sage", "Case restored", id), ...s.activities].slice(0, 40),
       auditLog: [{
-        id: uid(), at: new Date().toISOString(), actor: USERS[s.persona].name, persona: s.persona,
+        id: uid(), at: new Date().toISOString(), actor: currentUser.name, persona,
         action: "restore", entity: "case", entityId: id, before, after, reason: null,
       }, ...s.auditLog],
     };
-  }), []);
+  }), [currentUser.name, persona]);
   const assignCases = useCallback((ids: string[], assignee: string) => setState((s) => ({
     ...s,
     cases: s.cases.map((item) => ids.includes(item.id) && !item.archivedAt ? { ...item, assignedTo: assignee, updated: "Just now" } : item),
@@ -303,7 +312,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       reference: "",
       summary: "VerifyNow API is not configured. No external identity check was performed.",
       checkedAt: now,
-      checkedBy: USERS[state.persona].name,
+      checkedBy: currentUser.name,
       simulated: false,
     }));
     const checkByCase = new Map(matchingCases.map((item, index) => [item.id, checks[index]]));
@@ -316,7 +325,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       activities: [act("verify", "sand", "VerifyNow requested", `${checks.length} case(s) · integration not configured`), ...s.activities].slice(0, 40),
     }));
     return checks;
-  }, [state.cases, state.persona]);
+  }, [state.cases, currentUser.name]);
   const markDepartmentPacketExported = useCallback((id: string) => {
     updateCaseRecord(id, { departmentPacketExportedAt: new Date().toISOString() });
   }, [updateCaseRecord]);
@@ -331,17 +340,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!visit) throw new Error(`Visit ${id} was not found`);
     return {
       ...s,
-      visits: s.visits.map((item) => item.id === id ? { ...item, status: "returned" as const, returnedAt: new Date().toISOString(), returnReason: reason, reviewedAt: new Date().toISOString(), reviewedBy: USERS[s.persona].name } : item),
+      visits: s.visits.map((item) => item.id === id ? { ...item, status: "returned" as const, returnedAt: new Date().toISOString(), returnReason: reason, reviewedAt: new Date().toISOString(), reviewedBy: currentUser.name } : item),
       cases: s.cases.map((item) => item.id === visit.caseId ? { ...item, verification: "Returned for correction", verificationTone: "warning", readiness: "Review returned", nextAction: "Correct visit and resubmit", updated: "Just now" } : item),
       activities: [act("visit", "coral", "Visit returned", id), ...s.activities].slice(0, 40),
     };
-  }), []);
+  }), [currentUser.name]);
   const approveVisit = useCallback((id: string) => setState((s) => {
     const visit = s.visits.find((item) => item.id === id);
     if (!visit) throw new Error(`Visit ${id} was not found`);
     return {
       ...s,
-      visits: s.visits.map((item) => item.id === id ? { ...item, status: "approved" as const, reviewedAt: new Date().toISOString(), reviewedBy: USERS[s.persona].name } : item),
+      visits: s.visits.map((item) => item.id === id ? { ...item, status: "approved" as const, reviewedAt: new Date().toISOString(), reviewedBy: currentUser.name } : item),
       cases: s.cases.map((item) => {
         if (item.id !== visit.caseId) return item;
         const check = item.verifyNowChecks?.at(-1);
@@ -357,7 +366,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
       activities: [act("visit", "sage", "Visit approved", id), ...s.activities].slice(0, 40),
     };
-  }), []);
+  }), [currentUser.name]);
 
   const runSync = useCallback(async () => {
     setIsSyncing(true);
@@ -425,18 +434,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     let created: Intake | null = null;
     setState((s) => {
       const id = nextIntakeId(s.intakes);
-      created = emptyIntake(id, USERS[s.persona].name);
+      created = emptyIntake(id, currentUser.name);
       return { ...s, intakes: [created, ...s.intakes], activities: [act("intake", "sand", "Intake draft started", id), ...s.activities].slice(0, 40) };
     });
-    if (!created) created = emptyIntake(nextIntakeId(state.intakes), USERS[state.persona].name);
+    if (!created) created = emptyIntake(nextIntakeId(state.intakes), currentUser.name);
     return created;
-  }, [state.intakes, state.persona]);
+  }, [state.intakes, currentUser.name]);
 
   const saveIntake = useCallback((i: Intake) => setState((s) => ({ ...s, intakes: s.intakes.map((x) => x.id === i.id ? i : x) })), []);
 
   const submitIntake = useCallback((id: string) => setState((s) => ({ ...s, intakes: s.intakes.map((i) => i.id === id ? { ...i, status: "submitted" as const, submittedAt: new Date().toISOString() } : i), activities: [act("intake", "blue", "Intake submitted for review", id), ...s.activities].slice(0, 40) })), []);
 
-  const returnIntake = useCallback((id: string, reason: string) => setState((s) => ({ ...s, intakes: s.intakes.map((i) => i.id === id ? { ...i, status: "returned" as const, returnedAt: new Date().toISOString(), returnReason: reason, reviewedAt: new Date().toISOString(), reviewedBy: USERS[s.persona].name } : i), activities: [act("intake", "coral", "Intake returned", `${id} Â· ${reason.slice(0, 40)}`), ...s.activities].slice(0, 40) })), []);
+  const returnIntake = useCallback((id: string, reason: string) => setState((s) => ({ ...s, intakes: s.intakes.map((i) => i.id === id ? { ...i, status: "returned" as const, returnedAt: new Date().toISOString(), returnReason: reason, reviewedAt: new Date().toISOString(), reviewedBy: currentUser.name } : i), activities: [act("intake", "coral", "Intake returned", `${id} Â· ${reason.slice(0, 40)}`), ...s.activities].slice(0, 40) })), [currentUser.name]);
 
   const approveIntake = useCallback((id: string): CaseRecord | null => {
     let newCase: CaseRecord | null = null;
@@ -481,26 +490,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ...s,
         cases: [newCase, ...s.cases],
         visits: [visit, ...s.visits],
-        intakes: s.intakes.map((i) => i.id === id ? { ...i, status: "approved" as const, reviewedAt: new Date().toISOString(), reviewedBy: USERS[s.persona].name, createdCaseId: caseId } : i),
+        intakes: s.intakes.map((i) => i.id === id ? { ...i, status: "approved" as const, reviewedAt: new Date().toISOString(), reviewedBy: currentUser.name, createdCaseId: caseId } : i),
         activities: [act("intake", "sage", "Intake approved", `${id} â†’ ${caseId}`), act("visit", "blue", "Verification visit scheduled", visit.id), ...s.activities].slice(0, 40),
       };
     });
     return newCase;
-  }, []);
+  }, [currentUser.name]);
 
-  const linkIntake = useCallback((id: string, caseId: string, reason: string) => setState((s) => ({ ...s, intakes: s.intakes.map((i) => i.id === id ? { ...i, status: "linked_to_existing" as const, linkedToCaseId: caseId, reviewedAt: new Date().toISOString(), reviewedBy: USERS[s.persona].name, duplicateResolution: "linked" as const, duplicateResolutionReason: reason } : i), activities: [act("intake", "sage", "Intake linked to existing case", `${id} â†’ ${caseId}`), ...s.activities].slice(0, 40) })), []);
+  const linkIntake = useCallback((id: string, caseId: string, reason: string) => setState((s) => ({ ...s, intakes: s.intakes.map((i) => i.id === id ? { ...i, status: "linked_to_existing" as const, linkedToCaseId: caseId, reviewedAt: new Date().toISOString(), reviewedBy: currentUser.name, duplicateResolution: "linked" as const, duplicateResolutionReason: reason } : i), activities: [act("intake", "sage", "Intake linked to existing case", `${id} â†’ ${caseId}`), ...s.activities].slice(0, 40) })), [currentUser.name]);
 
   const discardIntake = useCallback((id: string) => setState((s) => ({ ...s, intakes: s.intakes.filter((i) => i.id !== id) })), []);
 
   const value = useMemo<Ctx>(() => ({
-    ...state, currentUser: USERS[state.persona], isOnline, isSyncing,
+    ...state, persona, currentUser, isOnline, isSyncing,
     databaseStatus, databaseError, retryDatabase,
     setPersona, setSeed, resetDemo,
     startVisit, saveVisitForm, addEvidence, removeEvidence, submitVisit, returnVisit, approveVisit, runSync,
     createCase, updateCaseRecord, archiveCase, restoreCase, assignCases, runVerifyNowChecks, markDepartmentPacketExported,
     requestBlocker, assignBlocker, resolveBlocker,
     createIntakeDraft, saveIntake, submitIntake, approveIntake, returnIntake, linkIntake, discardIntake,
-  }), [state, isOnline, isSyncing, databaseStatus, databaseError, retryDatabase, setPersona, setSeed, resetDemo, createCase, updateCaseRecord, archiveCase, restoreCase, assignCases, runVerifyNowChecks, markDepartmentPacketExported, startVisit, saveVisitForm, addEvidence, removeEvidence, submitVisit, returnVisit, approveVisit, runSync, requestBlocker, assignBlocker, resolveBlocker, createIntakeDraft, saveIntake, submitIntake, approveIntake, returnIntake, linkIntake, discardIntake]);
+  }), [state, persona, currentUser, isOnline, isSyncing, databaseStatus, databaseError, retryDatabase, setPersona, setSeed, resetDemo, createCase, updateCaseRecord, archiveCase, restoreCase, assignCases, runVerifyNowChecks, markDepartmentPacketExported, startVisit, saveVisitForm, addEvidence, removeEvidence, submitVisit, returnVisit, approveVisit, runSync, requestBlocker, assignBlocker, resolveBlocker, createIntakeDraft, saveIntake, submitIntake, approveIntake, returnIntake, linkIntake, discardIntake]);
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }

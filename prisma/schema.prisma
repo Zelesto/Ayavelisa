@@ -4,14 +4,32 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
   id        String   @id
   name      String
+  email     String?  @unique
+  role      String   @default("fieldworker")
+  active    Boolean  @default(true)
   persona   String   @default("fieldworker")
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model UserAudit {
+  id            String   @id
+  actorUserId   String
+  subjectUserId String
+  action        String
+  before        Json?
+  after         Json?
+  createdAt     DateTime @default(now())
+
+  @@index([subjectUserId])
+  @@index([actorUserId])
 }
 
 model CaseRecord {
