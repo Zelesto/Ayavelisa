@@ -16,7 +16,9 @@ type ManagedUser = {
 const roles: AccountRole[] = ["fieldworker", "reviewer", "supervisor", "admin"];
 
 function readableError(code: string | undefined, fallback: string) {
-  if (code === "auth_user_already_exists" || code === "account_already_managed") return "This email already has an account. Update its role in the list instead.";
+  if (code === "account_already_managed") return "This email is already in the Ayavelisa user list. Change its role there.";
+  if (code === "auth_user_already_exists_unresolved") return "Supabase says this email already has an account, but Ayavelisa could not locate it. Verify the email in Supabase Auth and confirm the Render service-role key belongs to the same project.";
+  if (code === "existing_auth_account_link_failed") return "The Supabase account exists, but Ayavelisa could not link it. Check the Render database and server logs.";
   if (code === "cannot_remove_last_active_admin") return "At least one active administrator must remain.";
   if (code === "cannot_remove_own_admin_access") return "You cannot deactivate or demote your own administrator account.";
   if (code === "invite_sent_account_setup_failed") return "The invitation email was sent, but the account record could not be created. Contact support before inviting this email again.";
@@ -64,12 +66,14 @@ export default function UserManagement() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), name: name.trim() || undefined, role }),
       });
-      const result = await response.json() as { error?: string };
+      const result = await response.json() as { error?: string; linkedExisting?: boolean };
       if (!response.ok) throw new Error(readableError(result.error, "Could not invite this user."));
       setEmail("");
       setName("");
       setRole("fieldworker");
-      setNotice("Invitation sent. The user must accept the email invitation and set their password.");
+      setNotice(result.linkedExisting
+        ? "Existing Supabase account added to Ayavelisa with the selected role. The user can sign in with their existing Supabase password."
+        : "Invitation sent. The user must accept the email invitation and set their password.");
       await loadUsers();
     } catch (inviteError) {
       setError(inviteError instanceof Error ? inviteError.message : "Could not invite this user.");

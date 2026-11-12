@@ -170,6 +170,50 @@ app.get("/api/admin/users", async (request, reply) => {
   return { users };
 });
 
+async function findSupabaseUserByEmail(email: string) {
+  if (!supabaseAdmin) return null;
+  for (let page = 1; page <= 100; page += 1) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 100 });
+    if (error) throw error;
+    const match = data.users.find((user) => user.email?.trim().toLowerCase() === email);
+    if (match) return match;
+    if (data.users.length < 100) return null;
+  }
+  throw new Error("Supabase account search exceeded the pagination limit");
+}
+
+async function createManagedUser(
+  actor: AuthenticatedUser,
+  authUser: { id: string; email?: string; user_metadata?: Record<string, unknown> },
+  email: string,
+  name: string | undefined,
+  role: AccountRole,
+  action: "invite" | "link_existing",
+) {
+  return prisma.$transaction(async (transaction) => {
+    const created = await transaction.user.create({
+      data: {
+        id: authUser.id,
+        email,
+        name: name ?? authUser.user_metadata?.full_name?.toString() ?? email,
+        role,
+        active: true,
+      },
+      select: { id: true, email: true, name: true, role: true, active: true, createdAt: true },
+    });
+    await transaction.userAudit.create({
+      data: {
+        id: crypto.randomUUID(),
+        actorUserId: actor.id,
+        subjectUserId: created.id,
+        action,
+        after: { id: created.id, email: created.email, name: created.name, role: created.role, active: created.active },
+      },
+    });
+    return created;
+  });
+}
+
 app.post("/api/admin/users", async (request, reply) => {
   const actor = request.authUser;
   if (actor?.role !== "admin") return reply.code(403).send({ error: "admin_required" });
@@ -187,34 +231,26 @@ app.post("/api/admin/users", async (request, reply) => {
     data: { full_name: parsed.data.name ?? email },
   });
   if (error || !data.user?.id) {
+    if (error?.status === 422) {
+      try {
+        const existingAuthUser = await findSupabaseUserByEmail(email);
+        if (existingAuthUser?.id) {
+          const user = await createManagedUser(actor, existingAuthUser, email, parsed.data.name, parsed.data.role, "link_existing");
+          return reply.code(201).send({ user, linkedExisting: true });
+        }
+        request.log.warn({ code: error.code }, "Supabase reported an existing user but it could not be found");
+        return reply.code(409).send({ error: "auth_user_already_exists_unresolved" });
+      } catch (linkError) {
+        request.log.error({ err: linkError }, "Could not link existing Supabase account");
+        return reply.code(502).send({ error: "existing_auth_account_link_failed" });
+      }
+    }
     request.log.warn({ status: error?.status, code: error?.code }, "Supabase invite failed");
-    return reply.code(error?.status === 422 ? 409 : 502)
-      .send({ error: error?.status === 422 ? "auth_user_already_exists" : "invite_failed" });
+    return reply.code(502).send({ error: "invite_failed" });
   }
 
   try {
-    const user = await prisma.$transaction(async (transaction) => {
-      const created = await transaction.user.create({
-        data: {
-          id: data.user.id,
-          email,
-          name: parsed.data.name ?? email,
-          role: parsed.data.role,
-          active: true,
-        },
-        select: { id: true, email: true, name: true, role: true, active: true, createdAt: true },
-      });
-      await transaction.userAudit.create({
-        data: {
-          id: crypto.randomUUID(),
-          actorUserId: actor.id,
-          subjectUserId: created.id,
-          action: "invite",
-          after: { id: created.id, email: created.email, name: created.name, role: created.role, active: created.active },
-        },
-      });
-      return created;
-    });
+    const user = await createManagedUser(actor, data.user, email, parsed.data.name, parsed.data.role, "invite");
     return reply.code(201).send({ user });
   } catch (error) {
     request.log.error({ err: error, invitedUserId: data.user.id }, "Invite sent but account setup failed");
