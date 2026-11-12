@@ -5,8 +5,8 @@ services:
     plan: free
     region: frankfurt
     branch: main
-   buildCommand: pnpm install --frozen-lockfile && pnpm run build
-    startCommand: npm run db:deploy && npm start
+    buildCommand: pnpm install --frozen-lockfile && pnpm run build
+    startCommand: pnpm run db:deploy && pnpm start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
