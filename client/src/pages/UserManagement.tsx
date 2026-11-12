@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { MailPlus, RefreshCw, ShieldCheck, UserRound, UserRoundX } from "lucide-react";
+import { MailPlus, RefreshCw, ShieldCheck, Trash2, UserRound, UserRoundX } from "lucide-react";
 import { SectionEyebrow, StatusPill } from "@/components/ui";
 import { authorizedFetch } from "@/lib/supabase";
 import { ROLE_LABELS, type AccountRole } from "@/lib/auth";
@@ -29,6 +29,11 @@ function readableError(code: string | undefined, fallback: string) {
   if (code === "email_sent_audit_failed") return "The email was sent, but Ayavelisa could not record the action. Check the recipient’s inbox before trying again, then inspect the server logs.";
   if (code === "cannot_remove_last_active_admin") return "At least one active administrator must remain.";
   if (code === "cannot_remove_own_admin_access") return "You cannot deactivate or demote your own administrator account.";
+  if (code === "cannot_delete_own_account") return "You cannot delete your own administrator account.";
+  if (code === "account_activation_unavailable") return "Could not activate this account. Check that the server-side Supabase service-role key is configured in Render.";
+  if (code === "account_confirmation_failed") return "Supabase could not confirm this account. Check the server logs and confirm that the service-role key belongs to the correct project.";
+  if (code === "account_deletion_unavailable") return "Account deletion requires the server-side Supabase service-role key in Render.";
+  if (code === "supabase_account_deletion_failed") return "Supabase could not delete this account. No Ayavelisa account changes were saved; check the server logs and try again.";
   if (code === "invite_sent_account_setup_failed") return "The invitation email was sent, but the account record could not be created. Contact support before inviting this email again.";
   return fallback;
 }
@@ -100,12 +105,38 @@ export default function UserManagement() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(update),
       });
-      const result = await response.json() as { user?: ManagedUser; error?: string };
+      const result = await response.json() as { user?: ManagedUser; error?: string; loginAllowed?: boolean };
       if (!response.ok || !result.user) throw new Error(readableError(result.error, "Could not update this account."));
-      setNotice(`${result.user.email} updated.`);
+      setNotice(result.loginAllowed
+        ? `Email confirmed and login enabled for ${result.user.email}.`
+        : `${result.user.email} updated.`);
       await loadUsers();
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Could not update this account.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const deleteUser = async (account: ManagedUser) => {
+    const confirmed = window.confirm(
+      `Permanently delete ${account.email} from Ayavelisa and Supabase Auth? This removes the login account, but does not delete shared workspace records.`,
+    );
+    if (!confirmed) return;
+
+    setBusyId(account.id);
+    setError("");
+    setNotice("");
+    try {
+      const response = await authorizedFetch(`/api/admin/users/${encodeURIComponent(account.id)}`, {
+        method: "DELETE",
+      });
+      const result = await response.json() as { deleted?: boolean; user?: { email: string }; error?: string };
+      if (!response.ok || !result.deleted) throw new Error(readableError(result.error, "Could not delete this account."));
+      setNotice(`${result.user?.email ?? account.email} deleted from Ayavelisa and Supabase Auth. Shared workspace records were not deleted.`);
+      await loadUsers();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Could not delete this account.");
     } finally {
       setBusyId(null);
     }
@@ -137,7 +168,7 @@ export default function UserManagement() {
         <div>
           <SectionEyebrow>Administration / Access</SectionEyebrow>
           <h1>Users &amp; roles</h1>
-          <p>Invite team members, resend confirmation or password-reset emails, assign roles, and deactivate access.</p>
+          <p>Invite team members, confirm and activate accounts, manage roles, resend access emails, or delete accounts.</p>
         </div>
         <button type="button" className="button button-quiet" onClick={() => void loadUsers()} disabled={loading}>
           <RefreshCw size={15} /> Refresh
@@ -160,7 +191,7 @@ export default function UserManagement() {
             <MailPlus size={15} />{inviting ? "Sending invite…" : "Send invite"}
           </button>
         </form>
-        <p className="user-admin-note">New invitations are sent by Supabase. Existing Supabase accounts are linked to Ayavelisa; use the account’s resend action to send a confirmation or password-reset email. Public sign-ups stay disabled.</p>
+        <p className="user-admin-note">New invitations are sent by Supabase. Existing Supabase accounts are linked to Ayavelisa; use “Confirm &amp; allow login” to approve an unconfirmed email without sending mail (verify the person’s identity first). They still need their Supabase password. Use “Resend access” for email confirmation or password recovery when delivery is available. Public sign-ups stay disabled.</p>
       </section>
 
       <section className="user-role-guidance" aria-label="Role permissions">
@@ -211,18 +242,36 @@ export default function UserManagement() {
                   <button
                     type="button"
                     className="button button-quiet button-small"
+                    disabled={busyId === account.id}
+                    onClick={() => void updateUser(account, { active: true })}
+                  >
+                    <ShieldCheck size={14} />{account.active ? "Confirm & allow login" : "Confirm & activate"}
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-quiet button-small"
                     disabled={busyId === account.id || !account.active}
                     onClick={() => void resendAccess(account)}
                   >
                     <MailPlus size={14} />{busyId === account.id ? "Sending…" : "Resend access"}
                   </button>
+                  {account.active && (
+                    <button
+                      type="button"
+                      className="button button-quiet button-small"
+                      disabled={busyId === account.id}
+                      onClick={() => void updateUser(account, { active: false })}
+                    >
+                      <UserRoundX size={14} />Deactivate
+                    </button>
+                  )}
                   <button
                     type="button"
-                    className={account.active ? "button button-quiet button-small" : "button button-primary button-small"}
+                    className="button button-quiet button-small"
                     disabled={busyId === account.id}
-                    onClick={() => void updateUser(account, { active: !account.active })}
+                    onClick={() => void deleteUser(account)}
                   >
-                    {account.active ? <><UserRoundX size={14} />Deactivate</> : <><ShieldCheck size={14} />Reactivate</>}
+                    <Trash2 size={14} />Delete
                   </button>
                 </div>
               </div>

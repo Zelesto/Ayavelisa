@@ -1063,7 +1063,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .user-identity strong { color: var(--ink); font-size: 11px; }
 .user-identity small { margin-top: 4px; color: var(--muted); font-size: 10px; }
 .user-avatar { display: grid; width: 31px; height: 31px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--sage-light); color: var(--sage); }
-.user-row-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.user-row-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 7px; }
 .button-small { min-height: 31px; padding: 0 10px; font-size: 10px; }
 .user-list-empty { margin: 4px 0 0; padding: 18px 0; color: var(--muted); font-size: 12px; }
 

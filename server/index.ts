@@ -328,6 +328,22 @@ app.patch<{ Params: { id: string } }>("/api/admin/users/:id", async (request, re
     return reply.code(400).send({ error: "cannot_remove_own_admin_access" });
   }
 
+  if (parsed.data.active === true) {
+    if (!supabaseAdmin) return reply.code(503).send({ error: "account_activation_unavailable" });
+    const { data: authUser, error: lookupError } = await supabaseAdmin.auth.admin.getUserById(request.params.id);
+    if (lookupError || !authUser.user?.email) {
+      request.log.error({ status: lookupError?.status, code: lookupError?.code }, "Could not find account in Supabase Auth for activation");
+      return reply.code(502).send({ error: "auth_account_not_found" });
+    }
+    if (!getSupabaseEmailConfirmed(authUser.user)) {
+      const { error: confirmError } = await supabaseAdmin.auth.admin.updateUserById(request.params.id, { email_confirm: true });
+      if (confirmError) {
+        request.log.error({ status: confirmError.status, code: confirmError.code }, "Could not confirm account email for administrator-approved access");
+        return reply.code(502).send({ error: "account_confirmation_failed" });
+      }
+    }
+  }
+
   try {
     const updatedUser = await prisma.$transaction(async (transaction) => {
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(78112026)`;
@@ -353,20 +369,77 @@ app.patch<{ Params: { id: string } }>("/api/admin/users/:id", async (request, re
           id: crypto.randomUUID(),
           actorUserId: actor.id,
           subjectUserId: updated.id,
-          action: "update",
+          action: parsed.data.active === true ? "administrator_approved_login" : "update",
           before: { role: current.role, active: current.active },
-          after: { role: updated.role, active: updated.active },
+          after: {
+            role: updated.role,
+            active: updated.active,
+            ...(parsed.data.active === true ? { emailConfirmed: true } : {}),
+          },
         },
       });
       return updated;
     });
     if (!updatedUser) return reply.code(404).send({ error: "account_not_found" });
-    return { user: updatedUser };
+    return { user: updatedUser, ...(parsed.data.active === true ? { loginAllowed: true } : {}) };
   } catch (error) {
     if (error instanceof Error && error.message === "last_active_admin") {
       return reply.code(409).send({ error: "cannot_remove_last_active_admin" });
     }
     request.log.error({ err: error }, "Could not update account");
+    throw error;
+  }
+});
+
+app.delete<{ Params: { id: string } }>("/api/admin/users/:id", async (request, reply) => {
+  const actor = request.authUser;
+  if (actor?.role !== "admin") return reply.code(403).send({ error: "admin_required" });
+  if (request.params.id === actor.id) return reply.code(400).send({ error: "cannot_delete_own_account" });
+  if (!supabaseAdmin) return reply.code(503).send({ error: "account_deletion_unavailable" });
+
+  try {
+    const deletedUser = await prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(78112026)`;
+      const current = await transaction.user.findUnique({ where: { id: request.params.id } });
+      if (!current?.email) return null;
+
+      if (current.role === "admin" && current.active) {
+        const activeAdmins = await transaction.user.count({
+          where: { role: "admin", active: true, email: { not: null } },
+        });
+        if (activeAdmins <= 1) throw new Error("last_active_admin");
+      }
+
+      await transaction.userAudit.create({
+        data: {
+          id: crypto.randomUUID(),
+          actorUserId: actor.id,
+          subjectUserId: current.id,
+          action: "delete",
+          before: { id: current.id, email: current.email, name: current.name, role: current.role, active: current.active },
+        },
+      });
+
+      const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(current.id);
+      if (authDeleteError && authDeleteError.status !== 404) {
+        request.log.error({ status: authDeleteError.status, code: authDeleteError.code, subjectUserId: current.id }, "Could not delete account from Supabase Auth");
+        throw new Error("supabase_account_deletion_failed");
+      }
+
+      await transaction.user.delete({ where: { id: current.id } });
+      return { id: current.id, email: current.email };
+    });
+
+    if (!deletedUser) return reply.code(404).send({ error: "account_not_found" });
+    return { deleted: true, user: deletedUser };
+  } catch (error) {
+    if (error instanceof Error && error.message === "last_active_admin") {
+      return reply.code(409).send({ error: "cannot_remove_last_active_admin" });
+    }
+    if (error instanceof Error && error.message === "supabase_account_deletion_failed") {
+      return reply.code(502).send({ error: "supabase_account_deletion_failed" });
+    }
+    request.log.error({ err: error, subjectUserId: request.params.id }, "Could not delete managed account");
     throw error;
   }
 });
