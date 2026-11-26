@@ -25,7 +25,7 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tsx": "^4.23.15",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://npm.aikido.io/2c84813fabc62e47190ea/xlsx@0.18.5-aikido.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
